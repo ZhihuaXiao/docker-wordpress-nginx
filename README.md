@@ -81,8 +81,8 @@ wordpress/
 ├── README.md                # Project documentation and deployment guide
 ├── BACKUP.md                # Comprehensive backup, restore, and disaster recovery guide
 ├── nginx-conf/
-│   ├── nginx.conf           # HTTP port 80: ACME challenge & HTTPS redirection
-│   └── ssl.conf             # HTTPS port 443: Security headers, FastCGI & PHP execution rules
+│   ├── default.conf.template # HTTP port 80 template (auto-substituted with $DOMAIN_NAME)
+│   └── ssl.conf.template     # HTTPS port 443 template (auto-substituted with $DOMAIN_NAME)
 ├── scripts/
 │   ├── backup.sh            # Automated server snapshot script (DB dump, files, configs)
 │   └── restore.sh           # Automated snapshot restoration script with integrity checks
@@ -120,7 +120,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and configure strong credentials:
+Edit `.env` and configure your credentials and domain:
 
 ```ini
 MYSQL_ROOT_PASSWORD=use_a_strong_root_password_here
@@ -128,26 +128,13 @@ MYSQL_USER=wp_user
 MYSQL_PASSWORD=use_a_strong_database_password_here
 # Optional: defaults to wordpress_db if omitted
 MYSQL_DATABASE=wordpress_db
+
+# Domain name and Certbot contact email
+DOMAIN_NAME=yourdomain.com
+CERTBOT_EMAIL=your-email@example.com
 ```
 
-### 2. Customize Domain & Email
-
-Before issuing certificates, update your domain and contact email across the configuration files:
-
-1. **[docker-compose.yml](docker-compose.yml):** Under the `certbot` service command:
-   ```yaml
-   command: certonly --webroot --webroot-path=/var/www/html --email your-email@example.com --agree-tos --no-eff-email -d yourdomain.com
-   ```
-2. **[nginx-conf/nginx.conf](nginx-conf/nginx.conf):**
-   ```nginx
-   server_name yourdomain.com;
-   ```
-3. **[nginx-conf/ssl.conf](nginx-conf/ssl.conf):**
-   ```nginx
-   server_name yourdomain.com;
-   ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-   ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-   ```
+Nginx automatically reads `${DOMAIN_NAME}` from `.env` using its built-in template engine (`/docker-entrypoint.d/20-envsubst-on-templates.sh`) and generates the runtime configuration files in `/etc/nginx/conf.d/`.
 
 ---
 
@@ -155,11 +142,11 @@ Before issuing certificates, update your domain and contact email across the con
 
 ### Step 1: Bootstrap SSL Certificate
 
-On a fresh installation, Nginx cannot start with `ssl.conf` enabled until certificate files exist. Follow this simple 3-step bootstrap:
+On a fresh installation, Nginx cannot start with HTTPS enabled until certificate files exist. Follow this simple 3-step bootstrap:
 
-**a.** Temporarily disable `ssl.conf`:
+**a.** Temporarily disable `ssl.conf.template`:
 ```bash
-mv nginx-conf/ssl.conf nginx-conf/ssl.conf.bak
+mv nginx-conf/ssl.conf.template nginx-conf/ssl.conf.template.bak
 ```
 
 **b.** Start the web stack on HTTP port 80 and run Certbot:
@@ -168,9 +155,9 @@ docker compose up -d db wordpress webserver
 docker compose run --rm certbot
 ```
 
-**c.** Re-enable `ssl.conf` and reload Nginx:
+**c.** Re-enable `ssl.conf.template` and restart Nginx:
 ```bash
-mv nginx-conf/ssl.conf.bak nginx-conf/ssl.conf
+mv nginx-conf/ssl.conf.template.bak nginx-conf/ssl.conf.template
 docker compose restart webserver
 ```
 

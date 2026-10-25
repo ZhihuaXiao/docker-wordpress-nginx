@@ -1,6 +1,6 @@
 # Backup and restore
 
-Two ways to back up this Docker WordPress stack (`blog.tryvibes.cc`):
+Two ways to back up this Docker WordPress stack:
 
 | Method | Purpose |
 |--------|---------|
@@ -63,8 +63,8 @@ Copy the new directory **off this server** (another disk, object storage, or you
 
 Use this when you can log in to WordPress and want a downloadable backup without SSH. It covers the WordPress database and files the plugin is configured to include. It does **not** back up Docker, Nginx, `.env`, or Let's Encrypt certificates — use `backup.sh` for a full stack snapshot.
 
-Admin: [https://blog.tryvibes.cc/wp-admin/](https://blog.tryvibes.cc/wp-admin/)  
-Login: [https://blog.tryvibes.cc/wp-login.php](https://blog.tryvibes.cc/wp-login.php)
+Admin: `https://yourdomain.com/wp-admin/`  
+Login: `https://yourdomain.com/wp-login.php`
 
 ### 1. Install a backup plugin
 
@@ -142,8 +142,8 @@ Optional flags:
 
 After restore, open:
 
-- Site: `https://blog.tryvibes.cc/`
-- Admin: `https://blog.tryvibes.cc/wp-admin/`
+- Site: `https://yourdomain.com/`
+- Admin: `https://yourdomain.com/wp-admin/`
 
 If HTTPS fails because certs were not restored, reissue them (see [README.md](README.md#certificate-renewal)):
 
