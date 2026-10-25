@@ -5,12 +5,17 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - MYSQL_DATABASE=wordpress_db
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-wordpress_db}
     volumes:
       - ./data/dbdata:/var/lib/mysql
     command: '--default-authentication-plugin=mysql_native_password'
     networks:
       - wp-app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   wordpress:
     depends_on:
@@ -23,11 +28,16 @@ services:
       - WORDPRESS_DB_HOST=db:3306
       - WORDPRESS_DB_USER=$MYSQL_USER
       - WORDPRESS_DB_PASSWORD=$MYSQL_PASSWORD
-      - WORDPRESS_DB_NAME=wordpress_db
+      - WORDPRESS_DB_NAME=${MYSQL_DATABASE:-wordpress_db}
     volumes:
       - ./data/wordpress:/var/www/html
     networks:
       - wp-app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   webserver:
     depends_on:
@@ -44,12 +54,20 @@ services:
       - ./data/certbot-etc:/etc/letsencrypt
     networks:
       - wp-app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   certbot:
     depends_on:
       - webserver
     image: certbot/certbot
     container_name: certbot
+    profiles:
+      - certbot
+    restart: "no"
     volumes:
       - ./data/certbot-etc:/etc/letsencrypt
       - ./data/wordpress:/var/www/html
