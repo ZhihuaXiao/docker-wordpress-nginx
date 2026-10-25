@@ -143,7 +143,7 @@ After install, the admin portal is at `https://blog.tryvibes.cc/wp-admin/`. If y
 ## Common commands
 
 ```bash
-# Start all services
+# Start all core services (db, wordpress, webserver)
 docker compose up -d
 
 # Stop services (data in ./data/ is preserved)
@@ -151,12 +151,12 @@ docker compose down
 
 # View logs
 docker compose logs -f webserver
-docker compose logs certbot
+docker compose --profile certbot logs certbot
 
 # Restart a single service
 docker compose restart webserver
 
-# Re-run certbot (e.g. after expiry or domain change)
+# Run certbot (certbot is isolated under the 'certbot' profile)
 docker compose run --rm certbot
 
 # Backup / restore (see BACKUP.md)
@@ -192,11 +192,27 @@ command: certonly --webroot --webroot-path=/var/www/html \
 | `nginx.conf`   | Port 80: ACME challenge path + redirect to HTTPS       |
 | `ssl.conf`     | Port 443: TLS + WordPress (FastCGI to `wordpress:9000`)|
 
+### Security & performance hardening in `ssl.conf`:
+- **Security headers:** Enforces HSTS, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy`.
+- **Upload protection:** Blocks direct execution of `.php` scripts in `/wp-content/uploads/`.
+- **Access restrictions:** Denies access to hidden files (`.git`, `.env`), `wp-config.php`, `readme.html`, and `license.txt`.
+- **Upload size:** `client_max_body_size 64M;` to support media and plugin uploads.
+- **TLS & FastCGI:** Modern TLS 1.2/1.3, session caching, and `fastcgi_read_timeout 300;`.
+- **Static asset caching:** Long-lived cache headers for images, CSS, JS, WebP, AVIF, and web fonts.
+
 After editing nginx config:
 
 ```bash
 docker compose restart webserver
 ```
+
+## Container logging
+
+All services in `docker-compose.yml` are configured with Docker's `json-file` log rotation:
+- `max-size: "10m"`
+- `max-file: "3"`
+
+This prevents application and web server logs from growing unbounded and exhausting host disk space.
 
 ## Data persistence
 

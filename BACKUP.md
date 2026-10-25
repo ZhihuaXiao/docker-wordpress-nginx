@@ -57,7 +57,7 @@ DOCKER_COMPOSE="sudo docker compose" ./scripts/backup.sh
 
 Copy the new directory **off this server** (another disk, object storage, or your laptop). A folder that only exists on this VM is not a recovery plan.
 
-`env.backup` contains database passwords. Treat backup directories like secrets.
+`env.backup` contains database passwords. Treat backup directories like secrets. `scripts/backup.sh` automatically enforces restrictive directory permissions (`chmod 700`) and file permissions (`chmod 600` on credentials and database dumps).
 
 ## Backup from wp-admin
 
@@ -107,6 +107,8 @@ This restores WordPress content only. It will not recreate `docker-compose.yml`,
 ## Restore
 
 Restore overwrites the live site. Take a fresh backup first if the current site still matters.
+
+Before modifying any live files or stopping services, `scripts/restore.sh` automatically pre-validates archive integrity (`gzip -t` on the database dump and `tar -tzf` on WordPress and Nginx archives). If any archive is corrupted or truncated, restore aborts immediately to protect your live installation from accidental data loss.
 
 ```bash
 ./scripts/restore.sh backups/YYYYMMDD-HHMMSS
