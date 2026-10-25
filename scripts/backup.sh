@@ -93,24 +93,37 @@ fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DEST="$OUT_BASE/$STAMP"
+# Ensure restrictive permissions (0700) so sensitive dumps and credentials are not readable by other users
+umask 077
 mkdir -p "$DEST"
+chmod 700 "$DEST"
 
 echo "Writing backup to $DEST"
 
 echo "Dumping database ${MYSQL_DATABASE}..."
 $DOCKER_COMPOSE exec -T -e MYSQL_PWD="$MYSQL_PASSWORD" db \
 	mysqldump -u"$MYSQL_USER" \
-	--single-transaction --routines --triggers --no-tablespaces \
+	--single-transaction --routines --triggers --no-tablespaces --default-character-set=utf8mb4 \
 	"$MYSQL_DATABASE" | gzip -c >"$DEST/wordpress_db.sql.gz"
+chmod 600 "$DEST/wordpress_db.sql.gz"
 
 echo "Archiving WordPress files..."
-tar -C "$ROOT/data/wordpress" -czf "$DEST/wordpress.tar.gz" .
+# Tar may return exit code 1 if files change while being read on an active site.
+# Allow exit code 1 (warning) but fail on real tar errors (exit code >= 2).
+tar -C "$ROOT/data/wordpress" -czf "$DEST/wordpress.tar.gz" . || {
+	rc=$?
+	if [[ $rc -ne 1 ]]; then
+		echo "Failed to archive WordPress files (exit code $rc)" >&2
+		exit $rc
+	fi
+}
 
 echo "Archiving Nginx config..."
 tar -C "$ROOT" -czf "$DEST/nginx-conf.tar.gz" nginx-conf
 
 cp "$ROOT/docker-compose.yml" "$DEST/docker-compose.yml"
 cp "$ROOT/.env" "$DEST/env.backup"
+chmod 600 "$DEST/env.backup"
 
 CERTS_STATUS="skipped"
 if [[ "$INCLUDE_CERTS" -eq 1 ]]; then

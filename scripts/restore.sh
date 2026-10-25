@@ -102,6 +102,20 @@ for required in "$DUMP" "$WP_TAR" "$NGINX_TAR"; do
 	fi
 done
 
+echo "Verifying backup archive integrity..."
+if ! gzip -t "$DUMP"; then
+	echo "Error: Database dump is corrupted: $DUMP" >&2
+	exit 1
+fi
+if ! tar -tzf "$WP_TAR" >/dev/null 2>&1; then
+	echo "Error: WordPress archive is corrupted: $WP_TAR" >&2
+	exit 1
+fi
+if ! tar -tzf "$NGINX_TAR" >/dev/null 2>&1; then
+	echo "Error: Nginx archive is corrupted: $NGINX_TAR" >&2
+	exit 1
+fi
+
 echo "Restore source: $BACKUP_DIR"
 if [[ -f "$BACKUP_DIR/MANIFEST.txt" ]]; then
 	cat "$BACKUP_DIR/MANIFEST.txt"
@@ -134,6 +148,7 @@ if [[ "$RESTORE_ENV" -eq 1 ]]; then
 		exit 1
 	fi
 	cp "$BACKUP_DIR/env.backup" "$ROOT/.env"
+	chmod 600 "$ROOT/.env"
 	echo "Restored .env"
 fi
 
