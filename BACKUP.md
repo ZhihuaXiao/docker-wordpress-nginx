@@ -1,5 +1,7 @@
 # Backup and restore
 
+[English](BACKUP.md) | [简体中文](BACKUP_CN.md)
+
 Two ways to back up this Docker WordPress stack:
 
 | Method | Purpose |

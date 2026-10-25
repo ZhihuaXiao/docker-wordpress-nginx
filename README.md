@@ -1,5 +1,7 @@
 # Production WordPress on Docker
 
+[English](README.md) | [简体中文](README_CN.md)
+
 A production-ready, security-hardened Docker Compose stack running **WordPress** with **PHP-FPM**, **Nginx** reverse proxy, **MySQL 8.0**, and **Let's Encrypt** SSL/TLS via Certbot.
 
 ---
