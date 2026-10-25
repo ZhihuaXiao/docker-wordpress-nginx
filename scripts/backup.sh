@@ -154,6 +154,11 @@ fi
 	echo "certs: $CERTS_STATUS"
 } >"$DEST/MANIFEST.txt"
 
+# If invoked via sudo, set ownership to the actual user who called sudo
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+	chown -R "$SUDO_USER:" "$DEST"
+fi
+
 echo
 echo "Backup complete: $DEST"
 ls -lh "$DEST"
