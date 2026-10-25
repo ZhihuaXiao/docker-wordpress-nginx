@@ -48,9 +48,11 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME:-example.com}
     volumes:
       - ./data/wordpress:/var/www/html
-      - ./nginx-conf:/etc/nginx/conf.d
+      - ./nginx-conf:/etc/nginx/templates
       - ./data/certbot-etc:/etc/letsencrypt
     networks:
       - wp-app-network
@@ -71,7 +73,7 @@ services:
     volumes:
       - ./data/certbot-etc:/etc/letsencrypt
       - ./data/wordpress:/var/www/html
-    command: certonly --webroot --webroot-path=/var/www/html --email zhxiao64@gmail.com --agree-tos --no-eff-email -d blog.tryvibes.cc
+    command: certonly --webroot --webroot-path=/var/www/html --email ${CERTBOT_EMAIL:-admin@example.com} --agree-tos --no-eff-email -d ${DOMAIN_NAME:-example.com}
     networks:
       - wp-app-network
 
