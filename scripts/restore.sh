@@ -239,4 +239,5 @@ $DOCKER_COMPOSE up -d
 
 echo
 echo "Restore complete from $BACKUP_DIR"
-echo "Check https://blog.tryvibes.cc/ and https://blog.tryvibes.cc/wp-admin/"
+TARGET_DOMAIN="${DOMAIN_NAME:-your-domain.com}"
+echo "Check https://${TARGET_DOMAIN}/ and https://${TARGET_DOMAIN}/wp-admin/"
