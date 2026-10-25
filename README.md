@@ -1,258 +1,265 @@
-# WordPress (Docker)
+# Production WordPress on Docker
 
-A Docker Compose stack for running WordPress behind **Nginx** with **PHP-FPM**, **MySQL 8**, and **Let's Encrypt** TLS via Certbot.
+A production-ready, security-hardened Docker Compose stack running **WordPress** with **PHP-FPM**, **Nginx** reverse proxy, **MySQL 8.0**, and **Let's Encrypt** SSL/TLS via Certbot.
 
-**Domain:** `blog.tryvibes.cc`  
-**Admin portal:** [https://blog.tryvibes.cc/wp-admin/](https://blog.tryvibes.cc/wp-admin/) (login page: `https://blog.tryvibes.cc/wp-login.php`)
+---
 
-## Architecture
+## Overview
 
-```
-Internet → Nginx (webserver :80/:443)
-              ├── static files from /var/www/html
-              └── PHP requests → WordPress FPM (wordpress :9000)
-                                        └── MySQL (db :3306)
-```
+This repository provides an enterprise-grade, portable deployment for WordPress with automated backup/restore scripts, production security hardening, container log rotation, and automated TLS certificate management.
 
-| Service    | Image                    | Role                                      |
-|------------|--------------------------|-------------------------------------------|
-| `db`       | `mysql:8.0`              | MySQL database                            |
-| `wordpress`| `wordpress:6.8-fpm-alpine` | WordPress (PHP-FPM, port 9000 internal) |
-| `webserver`| `nginx:1.27-alpine`      | Reverse proxy, TLS termination            |
-| `certbot`  | `certbot/certbot`        | One-shot Let's Encrypt certificate issue  |
-
-Nginx listens on ports **80** and **443** on the host. WordPress FPM does not expose HTTP directly; Nginx forwards PHP to `wordpress:9000`.
-
-## Project layout
+### Architecture
 
 ```
+                       Internet
+                          │
+                   ┌──────▼──────┐
+                   │    Nginx    │  (:80 / :443)
+                   │ (webserver) │
+                   └──────┬──────┘
+                          │
+          ┌───────────────┴───────────────┐
+          │ (static files & assets)       │ (PHP requests via FastCGI)
+          ▼                               ▼
+   /var/www/html                 ┌─────────────────┐
+(bind: ./data/wordpress)         │  WordPress FPM  │  (:9000 internal)
+                                 │   (wordpress)   │
+                                 └────────┬────────┘
+                                          │
+                                          ▼
+                                 ┌─────────────────┐
+                                 │     MySQL 8     │  (:3306 internal)
+                                 │      (db)       │
+                                 └─────────────────┘
+```
+
+### Services Matrix
+
+| Service | Docker Image | Internal Port | Exposed Port | Role |
+| :--- | :--- | :--- | :--- | :--- |
+| **`webserver`** | `nginx:1.27-alpine` | `80`, `443` | `80:80`, `443:443` | Reverse proxy, TLS termination, static asset cache |
+| **`wordpress`** | `wordpress:6.8-fpm-alpine` | `9000` | None (internal) | WordPress core & PHP-FPM application processor |
+| **`db`** | `mysql:8.0` | `3306` | None (internal) | MySQL database server with persistent storage |
+| **`certbot`** | `certbot/certbot` | N/A | None (profiled) | Automated Let's Encrypt ACME certificate issuance |
+
+---
+
+## Key Features
+
+- **Decoupled Architecture:** WordPress PHP-FPM runs isolated from Nginx. Neither PHP-FPM nor MySQL ports are exposed to the public internet.
+- **Production Security Hardening:**
+  - **Upload Protection:** Execution of `.php` scripts within `/wp-content/uploads/` is strictly prohibited in Nginx.
+  - **Access Restrictions:** Blocks access to hidden files (`.git`, `.env`), `wp-config.php`, `readme.html`, and `license.txt`.
+  - **Security Headers:** Enforces `Strict-Transport-Security` (HSTS), `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy`.
+  - **Safe Permissions:** Backup snapshots enforce `umask 077` and `chmod 700/600` on credentials and SQL dumps.
+- **Performance & Upload Ready:**
+  - `client_max_body_size 64M` allows large media uploads and plugin installations without HTTP 413 errors.
+  - Configured with `fastcgi_read_timeout 300` and FastCGI buffers to prevent 504 Gateway Timeouts during updates.
+  - Long-lived browser caching for CSS, JS, images, WebP, AVIF, and web fonts.
+- **Automated TLS & Certbot Isolation:**
+  - Integrated ACME challenge verification through Nginx webroot.
+  - Certbot is isolated under the `certbot` Docker Compose profile (`profiles: ["certbot"]`) with `restart: "no"`, avoiding unwanted duplicate runs and rate limits on standard `docker compose up -d`.
+- **Automated Backup & Disaster Recovery:**
+  - [scripts/backup.sh](scripts/backup.sh): Creates timestamped snapshots including UTF-8 MySQL dump, site files, Nginx config, `.env`, and TLS certificates.
+  - [scripts/restore.sh](scripts/restore.sh): Restores snapshots with automated `gzip` and `tar` archive integrity verification prior to making changes.
+- **Disk Space Protection (Log Rotation):**
+  - All containers configure Docker `json-file` log rotation (`max-size: 10m`, `max-file: 3`) to prevent unconstrained log files from filling the host drive.
+- **Predictable Data Persistence:**
+  - All database, media, and certificate state lives in the root `./data/` directory using standard bind mounts, simplifying volume management and external backups.
+
+---
+
+## Project Structure
+
+```text
 wordpress/
-├── docker-compose.yml
-├── .env                    # secrets (not committed)
-├── .env.example
-├── BACKUP.md               # backup and restore guide
-├── scripts/
-│   ├── backup.sh
-│   └── restore.sh
+├── docker-compose.yml       # Container services, networks, volumes & log configuration
+├── .env.example             # Template for required environment secrets
+├── .env                     # Local environment secrets (strictly gitignored)
+├── .dockerignore            # Excludes sensitive files from container contexts
+├── .gitignore               # Protects .env, /backups/, and /data/ from Git tracking
+├── README.md                # Project documentation and deployment guide
+├── BACKUP.md                # Comprehensive backup, restore, and disaster recovery guide
 ├── nginx-conf/
-│   ├── nginx.conf          # HTTP: ACME challenge + redirect to HTTPS
-│   └── ssl.conf            # HTTPS: WordPress + SSL
-├── backups/                # created by backup.sh (gitignored)
-└── data/                   # bind-mounted persistent data
-    ├── dbdata/             # MySQL database
-    ├── wordpress/          # WordPress site files
-    └── certbot-etc/        # Let's Encrypt certificates
+│   ├── nginx.conf           # HTTP port 80: ACME challenge & HTTPS redirection
+│   └── ssl.conf             # HTTPS port 443: Security headers, FastCGI & PHP execution rules
+├── scripts/
+│   ├── backup.sh            # Automated server snapshot script (DB dump, files, configs)
+│   └── restore.sh           # Automated snapshot restoration script with integrity checks
+├── backups/                 # Timestamped backup archives generated by backup.sh (gitignored)
+└── data/                    # Bind-mounted persistent state (gitignored)
+    ├── dbdata/              # MySQL data directory (/var/lib/mysql)
+    ├── wordpress/           # WordPress site root (/var/www/html)
+    └── certbot-etc/         # Let's Encrypt certificates & keys (/etc/letsencrypt)
 ```
+
+---
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- DNS `A` record for `blog.tryvibes.cc` pointing to this server
-- Ports **80** and **443** reachable from the internet (required for Let's Encrypt and HTTPS)
+- **Docker:** Engine version 20.10+
+- **Docker Compose:** Compose v2 (e.g. `docker compose` CLI plugin)
+- **Domain Name:** DNS `A` or `CNAME` record pointing your domain to this server's public IP
+- **Network Ports:** Ports **80** and **443** must be open and reachable from the internet
 
-### Cloudflare
+### Cloudflare Users
+If you use Cloudflare with Proxied (orange cloud) DNS:
+1. Ensure your SSL/TLS encryption mode is set to **Full (strict)** once origin certificates are active.
+2. For initial certificate issuance, HTTP port 80 must pass through to the origin without HTTPS enforcement, or temporarily switch DNS to **DNS only** (grey cloud) during validation.
 
-If using Cloudflare with **Proxied** (orange cloud) DNS:
+---
 
-- Set **SSL/TLS → Overview** to **Full (strict)** once origin HTTPS is working.
-- For initial certificate issuance, the origin must be reachable on **HTTP port 80** (Certbot webroot validation).
+## Configuration
 
-## Quick start
+### 1. Configure Secrets
 
-### 1. Configure environment
+Copy the example environment file:
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
-Edit `.env` and set strong values:
+Edit `.env` and configure strong credentials:
 
+```ini
+MYSQL_ROOT_PASSWORD=use_a_strong_root_password_here
+MYSQL_USER=wp_user
+MYSQL_PASSWORD=use_a_strong_database_password_here
+# Optional: defaults to wordpress_db if omitted
+MYSQL_DATABASE=wordpress_db
 ```
-MYSQL_ROOT_PASSWORD=...
-MYSQL_USER=...
-MYSQL_PASSWORD=...
-```
 
-### 2. First-time SSL bootstrap
+### 2. Customize Domain & Email
 
-Nginx cannot start with `ssl.conf` until certificates exist. On a **fresh install**, use this order:
+Before issuing certificates, update your domain and contact email across the configuration files:
 
-**a.** Ensure only HTTP config is active — use the HTTP-only `nginx.conf` below (serve WordPress on port 80, no redirect). Temporarily remove or rename `ssl.conf`:
+1. **[docker-compose.yml](docker-compose.yml):** Under the `certbot` service command:
+   ```yaml
+   command: certonly --webroot --webroot-path=/var/www/html --email your-email@example.com --agree-tos --no-eff-email -d yourdomain.com
+   ```
+2. **[nginx-conf/nginx.conf](nginx-conf/nginx.conf):**
+   ```nginx
+   server_name yourdomain.com;
+   ```
+3. **[nginx-conf/ssl.conf](nginx-conf/ssl.conf):**
+   ```nginx
+   server_name yourdomain.com;
+   ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+   ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+   ```
 
+---
+
+## Quick Start & First-Time Deployment
+
+### Step 1: Bootstrap SSL Certificate
+
+On a fresh installation, Nginx cannot start with `ssl.conf` enabled until certificate files exist. Follow this simple 3-step bootstrap:
+
+**a.** Temporarily disable `ssl.conf`:
 ```bash
 mv nginx-conf/ssl.conf nginx-conf/ssl.conf.bak
 ```
 
-Copy this into `nginx-conf/nginx.conf` for bootstrap:
-
-```nginx
-server {
-        listen 80;
-        listen [::]:80;
-        server_name blog.tryvibes.cc;
-        index index.php index.html index.htm;
-        root /var/www/html;
-
-        location ~ /.well-known/acme-challenge {
-                allow all;
-                root /var/www/html;
-        }
-
-        location / {
-                try_files $uri $uri/ /index.php$is_args$args;
-        }
-
-        location ~ \.php$ {
-                try_files $uri =404;
-                fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                fastcgi_pass wordpress:9000;
-                fastcgi_index index.php;
-                include fastcgi_params;
-                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-                fastcgi_param PATH_INFO $fastcgi_path_info;
-        }
-}
-```
-
-**b.** Start the stack and obtain a certificate:
-
+**b.** Start the web stack on HTTP port 80 and run Certbot:
 ```bash
 docker compose up -d db wordpress webserver
 docker compose run --rm certbot
 ```
 
-**c.** Restore HTTPS config (the repo's normal `nginx.conf` + `ssl.conf`) and restart:
-
+**c.** Re-enable `ssl.conf` and reload Nginx:
 ```bash
-mv nginx-conf/ssl.conf.bak nginx-conf/ssl.conf   # if renamed
+mv nginx-conf/ssl.conf.bak nginx-conf/ssl.conf
 docker compose restart webserver
 ```
 
-Or start everything:
+### Step 2: Complete WordPress Web Setup
 
-```bash
-docker compose up -d
-```
+1. Open `https://yourdomain.com/` in your browser.
+2. Follow the on-screen WordPress setup wizard (select language, site title, administrator username, and password).
+3. Access your administration dashboard at `https://yourdomain.com/wp-admin/`.
 
-### 3. Complete WordPress setup
+---
 
-Open `https://blog.tryvibes.cc/` and follow the WordPress installation wizard.
-
-After install, the admin portal is at `https://blog.tryvibes.cc/wp-admin/`. If you are logged out, WordPress redirects to `https://blog.tryvibes.cc/wp-login.php`.
-
-## Common commands
+## Common Management Commands
 
 ```bash
 # Start all core services (db, wordpress, webserver)
 docker compose up -d
 
-# Stop services (data in ./data/ is preserved)
+# Stop all running containers (persistent data remains safe in ./data/)
 docker compose down
 
-# View logs
+# Check service status
+docker compose ps
+
+# View live logs
 docker compose logs -f webserver
+docker compose logs -f wordpress
+docker compose logs -f db
+
+# View Certbot logs (requires --profile flag)
 docker compose --profile certbot logs certbot
 
-# Restart a single service
+# Restart Nginx after configuration adjustments
 docker compose restart webserver
 
-# Run certbot (certbot is isolated under the 'certbot' profile)
-docker compose run --rm certbot
-
-# Backup / restore (see BACKUP.md)
-./scripts/backup.sh
-./scripts/restore.sh backups/YYYYMMDD-HHMMSS
-```
-
-## Backup and restore
-
-Dump MySQL and archive site files with [`scripts/backup.sh`](scripts/backup.sh). Restore with [`scripts/restore.sh`](scripts/restore.sh). You can also back up from wp-admin with a plugin. Full steps: **[BACKUP.md](BACKUP.md)** (including [Backup from wp-admin](BACKUP.md#backup-from-wp-admin)).
-
-## Certificate renewal
-
-Certificates are stored in `./data/certbot-etc/`. To renew:
-
-```bash
+# Re-run or renew Certbot manually
 docker compose run --rm certbot renew
 docker compose restart webserver
 ```
 
-Update the email and domain in `docker-compose.yml` under the `certbot` service if needed:
+---
 
-```yaml
-command: certonly --webroot --webroot-path=/var/www/html \
-  --email your@email.com --agree-tos --no-eff-email \
-  -d blog.tryvibes.cc
-```
+## Backup and Disaster Recovery
 
-## Nginx configuration
+A complete backup and disaster recovery guide is provided in **[BACKUP.md](BACKUP.md)**.
 
-| File           | Purpose                                                |
-|----------------|--------------------------------------------------------|
-| `nginx.conf`   | Port 80: ACME challenge path + redirect to HTTPS       |
-| `ssl.conf`     | Port 443: TLS + WordPress (FastCGI to `wordpress:9000`)|
-
-### Security & performance hardening in `ssl.conf`:
-- **Security headers:** Enforces HSTS, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy`.
-- **Upload protection:** Blocks direct execution of `.php` scripts in `/wp-content/uploads/`.
-- **Access restrictions:** Denies access to hidden files (`.git`, `.env`), `wp-config.php`, `readme.html`, and `license.txt`.
-- **Upload size:** `client_max_body_size 64M;` to support media and plugin uploads.
-- **TLS & FastCGI:** Modern TLS 1.2/1.3, session caching, and `fastcgi_read_timeout 300;`.
-- **Static asset caching:** Long-lived cache headers for images, CSS, JS, WebP, AVIF, and web fonts.
-
-After editing nginx config:
-
+### Create a Snapshot
 ```bash
-docker compose restart webserver
+chmod +x scripts/backup.sh scripts/restore.sh
+./scripts/backup.sh
 ```
+*Creates a secured snapshot under `backups/YYYYMMDD-HHMMSS/` containing `wordpress_db.sql.gz`, `wordpress.tar.gz`, `nginx-conf.tar.gz`, `.env`, and TLS certificates.*
 
-## Container logging
+### Restore a Snapshot
+```bash
+./scripts/restore.sh backups/YYYYMMDD-HHMMSS
+```
+*Pre-validates archive integrity before making any changes, preventing accidental corruption of active sites.*
 
-All services in `docker-compose.yml` are configured with Docker's `json-file` log rotation:
-- `max-size: "10m"`
-- `max-file: "3"`
+---
 
-This prevents application and web server logs from growing unbounded and exhausting host disk space.
+## Security Best Practices
 
-## Data persistence
+1. **Keep Secrets Out of Version Control:** `.env`, `backups/`, and `data/` are already excluded in `.gitignore`. Never use `git add -f` on these paths.
+2. **Offsite Backups:** Copy generated backup directories off the server to remote storage (e.g., S3, SFTP, or an external hard drive).
+3. **Regular Updates:** Periodically pull updated Docker images to apply security patches:
+   ```bash
+   docker compose pull
+   docker compose up -d
+   ```
+4. **File Permissions:** Ensure `.env` is set to `chmod 600` and `backups/` is set to `chmod 700`.
 
-All application data lives under `./data/` via bind mounts:
-
-| Host path              | Container path        | Contents              |
-|------------------------|-----------------------|-----------------------|
-| `./data/dbdata`        | `/var/lib/mysql`      | MySQL database        |
-| `./data/wordpress`     | `/var/www/html`       | WordPress files       |
-| `./data/certbot-etc`   | `/etc/letsencrypt`    | TLS certificates      |
-
-`docker compose down` does **not** delete `./data/`. Avoid `docker compose down -v` unless you intend to wipe volumes (not used here, but worth noting).
+---
 
 ## Troubleshooting
 
-### Nginx crash loop: `cannot load certificate ... No such file`
+### Nginx Crash Loop: `cannot load certificate ... No such file`
+This occurs when Nginx starts with `ssl.conf` active before Let's Encrypt certificates have been generated. Follow the [Bootstrap SSL Certificate](#step-1-bootstrap-ssl-certificate) procedure above.
 
-The SSL certificate is missing from `./data/certbot-etc/`. Follow [First-time SSL bootstrap](#2-first-time-ssl-bootstrap) above.
+### HTTP 504 Gateway Timeout on Large Imports
+FastCGI timeouts are set to 300 seconds by default. If running massive database migrations, you can increase `fastcgi_read_timeout` in [nginx-conf/ssl.conf](nginx-conf/ssl.conf) and reload Nginx.
 
-### Cloudflare error 521
+### Permission Denied on Docker Socket
+If running without root or non-root docker group, pass `DOCKER_COMPOSE="sudo docker compose"` when running scripts:
+```bash
+DOCKER_COMPOSE="sudo docker compose" ./scripts/backup.sh
+```
 
-Cloudflare cannot reach your origin. Check that:
+---
 
-- `webserver` is running: `docker compose ps`
-- Origin listens on **443** (and **80** for redirects/ACME)
-- Cloudflare SSL mode is **Full (strict)**, not expecting HTTPS before certs exist
+## License
 
-### Certbot validation fails (404 / 521)
-
-- Ensure `blog.tryvibes.cc` DNS points to this server
-- Temporarily use HTTP-only nginx (no HTTPS redirect) during issuance
-- If proxied through Cloudflare, try **DNS only** (grey cloud) during validation, then re-enable proxy
-
-### WordPress install redirect loop
-
-Confirm `blog.tryvibes.cc` is set as the site URL in WordPress settings and that HTTPS is working end-to-end.
-
-## Security notes
-
-- Never commit `.env` (already listed in `.gitignore`)
-- Backup directories include `env.backup` (database secrets) and the full site — keep them off git (`/backups/` is gitignored) and copy them off this server
-- Consider adding `data/` to `.gitignore` if the repo is shared — it contains database and site files
-- Keep images updated periodically (`docker compose pull && docker compose up -d`)
+This project is open-source and available under the [MIT License](LICENSE).
